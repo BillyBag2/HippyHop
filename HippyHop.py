@@ -10,11 +10,20 @@ import google
 from pubsub import pub
 from meshtastic import mesh_pb2,  portnums_pb2, telemetry_pb2
 
+connect = False
 # Count to target from base
 hh_hop_count = {}
 
 # A dict of lists of where a node can tx to.
 hh_hop = {}
+
+# A dictionary of nodes.
+hh_nodes = {}
+
+class HhNode:
+    def __init__(self):
+        self.short = "?"
+        self.long = "?"
 
 DOT_HEAD = '''
 digraph G  {
@@ -38,10 +47,28 @@ def fixUp(id):
 
 def createDot():
     with open("mesh.dot", 'w') as file:
+        nodes_shown = set();
         file.write(DOT_HEAD)
         for start, list in hh_hop.items():
+            nodes_shown.add(start)
             for end in list:
-                file.write(f"{fixUp(start)} -> {fixUp(end)};")
+                file.writelines(f"{fixUp(start)} -> {fixUp(end)};")
+                nodes_shown.add(end)
+        for node_id in nodes_shown:
+            long = ""
+            short = ""
+            label = ""
+            if node_id in hh_nodes:
+                node = hh_nodes[node_id]
+                long = node.long
+                short = node.short
+                label = f"{long}\\n{short}\\n({node_id})"
+            else:
+                long = node_id
+                short = "?"
+                label = node_id
+            #short = hh_nodes[node].short
+            file.writelines(f"{fixUp(node_id)} [label=\"{label}\",shape=circle,height=0.12,width=0.12,fontsize=5];")
         file.write(DOT_TAIL)
 
 
@@ -99,6 +126,10 @@ def onReceive( packet, interface): # called when a packet arrives
                     long = packet['decoded']['position']['longitude']
                     from_id = packet['fromId']
                     print(f"> {interface.nodes[from_id]['user']['longName']} ({interface.nodes[from_id]['user']['shortName']}) {from_id} {lat},{long} ")
+                    if from_id not in hh_nodes:
+                        hh_nodes[from_id] = HhNode()
+                    hh_nodes[from_id].short = interface.nodes[from_id]['user']['shortName']
+                    hh_nodes[from_id].long = interface.nodes[from_id]['user']['longName']
                     sendTraceRoute(interface, from_id)
             else:
                 print("No decoded?")
@@ -112,7 +143,9 @@ def onReceive( packet, interface): # called when a packet arrives
 def onConnection(interface, topic=pub.AUTO_TOPIC): # called when we (re)connect to the radio
     # defaults to broadcast, specify a destination ID if you wish
     #interface.sendText("hello mesh")
-    print(f"> Connected")
+    print("> Connected")
+    global connect
+    connect = True
 
 
 pub.subscribe(onReceive, "meshtastic.receive")
@@ -123,8 +156,29 @@ interface = meshtastic.serial_interface.SerialInterface()
 #interface = meshtastic.tcp_interface.TCPInterface(hostname = "192.168.0.10", debugOut=None, noProto=False, connectNow=True, portNumber=4403)
 
 quit = False
+listed = False
+todo = set()
 while not quit:
     time.sleep(10)
+    if not listed:
+        if connect:
+            time.sleep(10)
+            print("> Getting stored nodes")
+            listed = True
+            for node in interface.nodes.values():
+                user = node.get('user')
+                if user:
+                    print("> Found a user")
+                    if user['id'] not in hh_nodes:
+                        hh_nodes[user['id']] = HhNode()
+                    hh_nodes[user['id']].long = user['longName']
+                    hh_nodes[user['id']].short = user['shortName']
+                    todo.add(user['id'])
+    if len(todo) > 0:
+        print(f"> Working though stored nodes {len(todo)} to go")
+        node_id = todo.pop()
+        sendTraceRoute(interface, node_id)
+        time.sleep(10)
     createDot()
 
 
