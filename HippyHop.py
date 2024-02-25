@@ -10,7 +10,10 @@ import google
 from pubsub import pub
 from meshtastic import mesh_pb2,  portnums_pb2, telemetry_pb2
 
+from hippyhopdata import *
+
 connect = False
+redraw = False
 # Count to target from base
 hh_hop_count = {}
 
@@ -19,11 +22,6 @@ hh_hop = {}
 
 # A dictionary of nodes.
 hh_nodes = {}
-
-class HhNode:
-    def __init__(self):
-        self.short = "?"
-        self.long = "?"
 
 DOT_HEAD = '''
 # shape=circle,height=0.12,width=0.12,fontsize=5
@@ -47,7 +45,12 @@ def fixUp(id):
     else:
         return "_" + id
 
+def queueTrace(id):
+    global needs_trace
+    needs_trace.add(id)
+
 def createDot():
+    print("> Redrawing DOT file")
     with open("mesh.dot", 'w') as file:
         nodes_shown = set()
         file.write(DOT_HEAD)
@@ -73,16 +76,56 @@ def createDot():
             file.write(f"{fixUp(node_id)} [label=\"{label}\"];\n")
         file.write(DOT_TAIL)
 
+def recordTraceRout(packet):
+    global redraw
+    print("> Route traced")
+    print(f"packet")
+    me = interface._nodeNumToId(packet["to"])
+    to = interface._nodeNumToId(packet["from"])
+    first = me
+    if 'decoded' in packet:
+        decoded = packet['decoded']
+        if 'rxTime' in packet:
+            rx_time = packet['rxTime']
+        if "traceroute" in decoded:
+            if "route" in decoded['traceroute']:
+                route = decoded['traceroute']["route"]
+                count = len(route)
+                hh_hop_count[to] =  count
+                print(f"{count} hop(s) to {to}")
+                for nodeNum in route:
+                    node_id = interface._nodeNumToId(nodeNum)
+                    # TODO: Add time stamp?
+                    if first not in hh_hop:
+                        hh_hop[first] = {} 
+                    hh_hop[first][node_id] = rx_time
+                    print(f"> {first} --> {node_id}")
+                    first = node_id
+                if first not in hh_hop:
+                    hh_hop[first] = {}
+                hh_hop[first][to] = 1
+                print(f"> {first} --> {to}")
+            else:
+                if me not in hh_hop:
+                    hh_hop[me] = {}
+                hh_hop[me][to] = rx_time
+                print(f"> {me} --> {to}")
+            redraw = True
+        else:
+            print("> NO TRACEROUTE ?")
+    else:
+        print("> NO DECODED?")
 
-def onResponseTraceRoute(p):
+def onResponseTraceRoute(packet):
+    global redraw
     """on response for trace route"""
     routeDiscovery = mesh_pb2.RouteDiscovery()
-    routeDiscovery.ParseFromString(p["decoded"]["payload"])
+    routeDiscovery.ParseFromString(packet["decoded"]["payload"])
     asDict = google.protobuf.json_format.MessageToDict(routeDiscovery)
 
     print("> Route traced")
-    me = interface._nodeNumToId(p["to"])
-    to = interface._nodeNumToId(p["from"])
+    me = interface._nodeNumToId(packet["to"])
+    to = interface._nodeNumToId(packet["from"])
     first = me
     if "route" in asDict:
         route = asDict["route"]
@@ -106,7 +149,7 @@ def onResponseTraceRoute(p):
             hh_hop[me] = {}
         hh_hop[me][to] = 1
         print(f"> {me} --> {to}")
-    #createDot()
+    redraw = True
     interface._acknowledgment.receivedTraceRoute = True
 
 #hh = HippyHop
@@ -116,25 +159,40 @@ def sendTraceRoute(interface, to_id):
     #hh.interface = interface
     r = mesh_pb2.RouteDiscovery()
     interface.sendData(r, destinationId=to_id, portNum=portnums_pb2.PortNum.TRACEROUTE_APP,
-        wantResponse=True, onResponse=onResponseTraceRoute)
+        wantResponse=True)
+        #onResponse=onResponseTraceRoute)
+    time.sleep(1)
         
 def onReceive( packet, interface): # called when a packet arrives
+        rx_time = 0
+        if 'rxTime' in packet:
+            rx_time = packet['rxTime']
+        else:
+            print("> NO rxTime?")
         if 'decoded' in packet:
-            if 'portnum' in packet['decoded']:
-                app = packet['decoded']['portnum']
-                print(f"> {packet['decoded']['portnum']}")
-                if app == "POSITION_APP":
-                    lat = packet['decoded']['position']['latitude']
-                    long = packet['decoded']['position']['longitude']
+            decoded = packet['decoded']
+            if 'portnum' in decoded:
+                app = decoded['portnum']
+                print(f"> {decoded['portnum']}")
+                if (app == "POSITION_APP") or (app == "NODEINFO_APP"):
                     from_id = packet['fromId']
-                    print(f"> {interface.nodes[from_id]['user']['longName']} ({interface.nodes[from_id]['user']['shortName']}) {from_id} {lat},{long} ")
                     if from_id not in hh_nodes:
-                        hh_nodes[from_id] = HhNode()
-                    hh_nodes[from_id].short = interface.nodes[from_id]['user']['shortName']
-                    hh_nodes[from_id].long = interface.nodes[from_id]['user']['longName']
-                    sendTraceRoute(interface, from_id)
-                if app == "NODEINFO_APP":
+                        print(f"{packet}")
+                        hh_nodes[from_id] = HhNode(
+                            decoded['user']['shortName'],
+                            decoded['user']['longName'],
+                            rx_time)
+                    if 'position' in decoded:
+                        pos = HhPos(
+                            decoded['position']['longitude'],
+                            decoded['position']['latitude'],
+                            rx_time)
+                        hh_nodes[from_id].pos = pos
+                    queueTrace(from_id)
+                    hh_nodes[from_id].Show()
+                if app == "TRACEROUTE_APP":
                     print(f"{packet}")
+                    recordTraceRout(packet)
             else:
                 print("No decoded?")
                 #print(f"{packet}")
@@ -160,29 +218,35 @@ interface = meshtastic.serial_interface.SerialInterface()
 #interface = meshtastic.tcp_interface.TCPInterface(hostname = "192.168.0.10", debugOut=None, noProto=False, connectNow=True, portNumber=4403)
 
 quit = False
-listed = False
-todo = set()
-while not quit:
+needs_trace = set()
+
+
+time.sleep(10)
+while not connect:
+    print("> Waiting for connection.")
     time.sleep(10)
-    if not listed:
-        if connect:
-            time.sleep(10)
-            print("> Getting stored nodes")
-            listed = True
-            for node in interface.nodes.values():
-                user = node.get('user')
-                if user:
-                    if user['id'] not in hh_nodes:
-                        hh_nodes[user['id']] = HhNode()
-                    hh_nodes[user['id']].long = user['longName']
-                    hh_nodes[user['id']].short = user['shortName']
-                    todo.add(user['id'])
-    if len(todo) > 0:
-        print(f"> Working though stored nodes {len(todo)} to go")
-        node_id = todo.pop()
+
+print("> Getting stored nodes")
+
+for node in interface.nodes.values():
+    user = node.get('user')
+    if user:
+        if user['id'] not in hh_nodes:
+            hh_nodes[user['id']] = HhNode(user['shortName'], user['longName'], 0)
+        queueTrace(user['id'])
+
+while not quit:            
+    if len(needs_trace) > 0:
+        print(f"> {len(needs_trace)} traces left.")
+        node_id = needs_trace.pop()
         sendTraceRoute(interface, node_id)
-        time.sleep(10)
-    createDot()
+    print(f"> redraw = {redraw}")
+    if redraw:
+        redraw = False
+        createDot()
+    else:
+        if len(needs_trace) == 0:
+            time.sleep(10)
 
 
 
