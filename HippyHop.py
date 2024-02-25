@@ -116,51 +116,15 @@ def recordTraceRout(packet):
     else:
         print("> NO DECODED?")
 
-def onResponseTraceRoute(packet):
-    global redraw
-    """on response for trace route"""
-    routeDiscovery = mesh_pb2.RouteDiscovery()
-    routeDiscovery.ParseFromString(packet["decoded"]["payload"])
-    asDict = google.protobuf.json_format.MessageToDict(routeDiscovery)
-
-    print("> Route traced")
-    me = interface._nodeNumToId(packet["to"])
-    to = interface._nodeNumToId(packet["from"])
-    first = me
-    if "route" in asDict:
-        route = asDict["route"]
-        count = len(route)
-        hh_hop_count[to] =  count
-        print(f"{count} hop(s) to {to}")
-        for nodeNum in route:
-            node_id = interface._nodeNumToId(nodeNum)
-            # TODO: Add time stamp?
-            if first not in hh_hop:
-                hh_hop[first] = {} 
-            hh_hop[first][node_id] = 1
-            print(f"> {first} --> {node_id}")
-            first = node_id
-        if first not in hh_hop:
-            hh_hop[first] = {}
-        hh_hop[first][to] = 1
-        print(f"> {first} --> {to}")
-    else:
-        if me not in hh_hop:
-            hh_hop[me] = {}
-        hh_hop[me][to] = 1
-        print(f"> {me} --> {to}")
-    redraw = True
-    interface._acknowledgment.receivedTraceRoute = True
-
-#hh = HippyHop
-
 def sendTraceRoute(interface, to_id):
     print(f"> Trace route {to_id}")
     #hh.interface = interface
     r = mesh_pb2.RouteDiscovery()
-    interface.sendData(r, destinationId=to_id, portNum=portnums_pb2.PortNum.TRACEROUTE_APP,
+    interface.sendData(
+        r,
+        destinationId=to_id,
+        portNum=portnums_pb2.PortNum.TRACEROUTE_APP,
         wantResponse=True)
-        #onResponse=onResponseTraceRoute)
     time.sleep(1)
         
 def onReceive( packet, interface): # called when a packet arrives
