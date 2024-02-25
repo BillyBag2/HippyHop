@@ -26,13 +26,15 @@ class HhNode:
         self.long = "?"
 
 DOT_HEAD = '''
+# shape=circle,height=0.12,width=0.12,fontsize=5
 digraph G  {
-    fontname="Helvetica,Arial,sans-serif"
-    node [fontname="Helvetica,Arial,sans-serif"]
-    edge [fontname="Helvetica,Arial,sans-serif"]
-    layout=neato
-    center=""
-    node[width=.25,height=.375,fontsize=9]
+    graph [overlap=false];
+    fontname="Helvetica,Arial,sans-serif";
+    node [fontname="Helvetica,Arial,sans-serif"];
+    edge [fontname="Helvetica,Arial,sans-serif"];
+    layout=neato;
+    center="";
+    node[width=.25,height=.375,fontsize=9];
 '''
 
 DOT_TAIL = '''
@@ -41,18 +43,18 @@ DOT_TAIL = '''
 
 def fixUp(id):
     if id.startswith('!'):
-        return id[1:]
+        return "_" + id[1:]
     else:
-        return id
+        return "_" + id
 
 def createDot():
     with open("mesh.dot", 'w') as file:
-        nodes_shown = set();
+        nodes_shown = set()
         file.write(DOT_HEAD)
         for start, list in hh_hop.items():
             nodes_shown.add(start)
             for end in list:
-                file.writelines(f"{fixUp(start)} -> {fixUp(end)};")
+                file.write(f"{fixUp(start)} -> {fixUp(end)};\n")
                 nodes_shown.add(end)
         for node_id in nodes_shown:
             long = ""
@@ -68,7 +70,7 @@ def createDot():
                 short = "?"
                 label = node_id
             #short = hh_nodes[node].short
-            file.writelines(f"{fixUp(node_id)} [label=\"{label}\",shape=circle,height=0.12,width=0.12,fontsize=5];")
+            file.write(f"{fixUp(node_id)} [label=\"{label}\"];\n")
         file.write(DOT_TAIL)
 
 
@@ -131,6 +133,8 @@ def onReceive( packet, interface): # called when a packet arrives
                     hh_nodes[from_id].short = interface.nodes[from_id]['user']['shortName']
                     hh_nodes[from_id].long = interface.nodes[from_id]['user']['longName']
                     sendTraceRoute(interface, from_id)
+                if app == "NODEINFO_APP":
+                    print(f"{packet}")
             else:
                 print("No decoded?")
                 #print(f"{packet}")
@@ -168,7 +172,6 @@ while not quit:
             for node in interface.nodes.values():
                 user = node.get('user')
                 if user:
-                    print("> Found a user")
                     if user['id'] not in hh_nodes:
                         hh_nodes[user['id']] = HhNode()
                     hh_nodes[user['id']].long = user['longName']
