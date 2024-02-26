@@ -138,25 +138,33 @@ def onReceive( packet, interface): # called when a packet arrives
             if 'portnum' in decoded:
                 app = decoded['portnum']
                 print(f"> {decoded['portnum']}")
-                if (app == "POSITION_APP") or (app == "NODEINFO_APP"):
+                #if (app == "POSITION_APP") or (app == "NODEINFO_APP"):
+                if 'fromId' in packet:
                     from_id = packet['fromId']
-                    if from_id not in hh_nodes:
+                    if 'user' in decoded:
+                        if from_id not in hh_nodes:
+                            print(f"{packet}")
+                            hh_nodes[from_id] = HhNode(
+                                decoded['user']['shortName'],
+                                decoded['user']['longName'],
+                                rx_time)
+                        if 'position' in decoded:
+                            pos = HhPos(
+                                decoded['position']['longitude'],
+                                decoded['position']['latitude'],
+                                rx_time)
+                            hh_nodes[from_id].pos = pos
+                        #queueTrace(from_id)
+                        hh_nodes[from_id].Show()
+                    else:
                         print(f"{packet}")
-                        hh_nodes[from_id] = HhNode(
-                            decoded['user']['shortName'],
-                            decoded['user']['longName'],
-                            rx_time)
-                    if 'position' in decoded:
-                        pos = HhPos(
-                            decoded['position']['longitude'],
-                            decoded['position']['latitude'],
-                            rx_time)
-                        hh_nodes[from_id].pos = pos
-                    queueTrace(from_id)
-                    hh_nodes[from_id].Show()
                 if app == "TRACEROUTE_APP":
-                    print(f"{packet}")
+                    #print(f"{packet}")
                     recordTraceRout(packet)
+                else:
+                    if 'fromId' in packet:
+                        from_id = packet['fromId']
+                        queueTrace(from_id)
             else:
                 print("No decoded?")
                 #print(f"{packet}")
@@ -173,6 +181,8 @@ def onConnection(interface, topic=pub.AUTO_TOPIC): # called when we (re)connect 
     global connect
     connect = True
 
+quit = False
+needs_trace = set()
 
 pub.subscribe(onReceive, "meshtastic.receive")
 pub.subscribe(onConnection, "meshtastic.connection.established")
@@ -180,10 +190,6 @@ pub.subscribe(onConnection, "meshtastic.connection.established")
 # By default will try to find a meshtastic device, otherwise provide a device path like /dev/ttyUSB0
 interface = meshtastic.serial_interface.SerialInterface()
 #interface = meshtastic.tcp_interface.TCPInterface(hostname = "192.168.0.10", debugOut=None, noProto=False, connectNow=True, portNumber=4403)
-
-quit = False
-needs_trace = set()
-
 
 time.sleep(10)
 while not connect:
