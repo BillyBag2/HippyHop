@@ -46,8 +46,11 @@ def fixUp(id):
         return "_" + id
 
 def queueTrace(id):
-    global needs_trace
-    needs_trace.add(id)
+    if id is None:
+        print("> ID IS NONE")
+    else:
+        global needs_trace
+        needs_trace.add(id)
 
 def createDot():
     print("> Redrawing DOT file")
@@ -59,24 +62,62 @@ def createDot():
             for end in list:
                 file.write(f"{fixUp(start)} -> {fixUp(end)};\n")
                 nodes_shown.add(end)
+        # loop through to scale map
+        lat_min = None
+        lat_max = None
+        long_min = None
+        long_max = None
+        
+        for node_id in nodes_shown:
+            if node_id in hh_nodes:
+                node = hh_nodes[node_id]
+                if node.pos is not None:
+                    pos = node.pos
+                    if lat_min is None:
+                        lat_min = pos.lat
+                    if lat_max is None:
+                        lat_max = pos.lat
+                    if long_min is None:
+                        long_min = pos.long
+                    if long_max is None:
+                        long_max = pos.lat
+                    if pos.lat < lat_min:
+                        lat_min = pos.lat
+                    if pos.lat > lat_max:
+                        lat_max - pos.lat
+                    if pos.long < long_min:
+                        long_min = pos.long
+                    if pos.long > long_max:
+                        long_max = pos.long
+                else:
+                    print(">POS MISSING FROM NODE")
+            else:
+                print("> NODE MISSING FROM LIST?")
+        long_diff = long_max - long_min
+        lat_diff = lat_max - lat_min
         for node_id in nodes_shown:
             long = ""
             short = ""
             label = ""
+            pos_text = ""
             if node_id in hh_nodes:
                 node = hh_nodes[node_id]
                 long = node.long
                 short = node.short
                 label = f"{long}\\n{short}\\n({node_id})"
+                if not node.pos is None:
+                    #pos="1,1!"
+                    pos_text = f",pos=\"{node.pos.long * 30},{node.pos.lat * 30}!\""
             else:
                 long = node_id
                 short = "?"
                 label = node_id
             #short = hh_nodes[node].short
-            file.write(f"{fixUp(node_id)} [label=\"{label}\"];\n")
+            file.write(f"{fixUp(node_id)} [label=\"{label}\"{pos_text}];\n")
         file.write(DOT_TAIL)
 
 def recordTraceRout(packet):
+
     global redraw
     print("> Route traced")
     print(f"packet")
@@ -203,7 +244,16 @@ for node in interface.nodes.values():
     if user:
         if user['id'] not in hh_nodes:
             hh_nodes[user['id']] = HhNode(user['shortName'], user['longName'], 0)
+            #print(f"{node}")
         queueTrace(user['id'])
+        pos = node.get('position')
+        if pos:
+            long = pos.get("longitude")
+            lat = pos.get("latitude")
+            if (not long is None) and (not lat is None): 
+                hh_nodes[user['id']].pos = HhPos(long,lat,node.get("lastHeard"))
+            else:
+                print("> LONG OR LAT is None")
 
 while not quit:            
     if len(needs_trace) > 0:
