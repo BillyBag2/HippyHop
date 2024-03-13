@@ -39,12 +39,14 @@ DOT_TAIL = '''
 }
 '''
 
+# Deal with annoying issue that dot does not like exclamation marks in names.
 def fixUp(id):
     if id.startswith('!'):
         return "_" + id[1:]
     else:
         return "_" + id
 
+# Queue a trace based on ID
 def queueTrace(id):
     if id is None:
         print("> ID IS NONE")
@@ -52,16 +54,20 @@ def queueTrace(id):
         global needs_trace
         needs_trace.add(id)
 
+# Create a dot file.
 def createDot():
     print("> Redrawing DOT file")
     with open("mesh.dot", 'w') as file:
         nodes_shown = set()
         file.write(DOT_HEAD)
+        # Add hops to dot file
         for start, list in hh_hop.items():
-            nodes_shown.add(start)
-            for end in list:
-                file.write(f"{fixUp(start)} -> {fixUp(end)};\n")
-                nodes_shown.add(end)
+            if hh_nodes[start].pos is not None:
+                for end in list:
+                    if hh_nodes[end].pos is not None:
+                        file.write(f"{fixUp(start)} -> {fixUp(end)};\n")
+                        nodes_shown.add(end)
+                        nodes_shown.add(start)
         # loop through to scale map
         lat_min = None
         lat_max = None
@@ -117,7 +123,6 @@ def createDot():
         file.write(DOT_TAIL)
 
 def recordTraceRout(packet):
-
     global redraw
     print("> Route traced")
     print(f"packet")
